@@ -37,7 +37,8 @@ const CONFIG = {
   minLuxuryPrice: 3_000_000,
   targetSoldYear: 2025,
   currentYearToDate: new Date(), // dynamically computed each run
-  recentYearBuiltThreshold: 2024,
+  recentYearBuiltThreshold: 2024, // used by the scoring helper
+  minYearBuilt: 2024,             // HARD GATE for Filter A -- new development only
   maxItemsPerTarget: Number(process.env.MAX_ITEMS_PER_TARGET) || 500,
   actorTimeoutMinutes: Number(process.env.ACTOR_TIMEOUT_MINUTES) || 15,
   actorId: process.env.APIFY_ACTOR_ID,
@@ -132,6 +133,7 @@ async function main() {
   // 5. Apply filters
   const filterA = filterNewConstructionSold2025(deduped, {
     targetSoldYear: CONFIG.targetSoldYear,
+    minYearBuilt: CONFIG.minYearBuilt,
   });
   const filterB = filterLuxurySoldYTD(deduped, {
     minLuxuryPrice: CONFIG.minLuxuryPrice,

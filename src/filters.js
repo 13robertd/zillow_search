@@ -112,13 +112,24 @@ export function annotateNewConstruction(records, opts = {}) {
 
 /**
  * FILTER A: 2025 new construction sold.
+ *
+ * Hard gates:
+ *   - must be sold
+ *   - sold_date in target year (default 2025)
+ *   - year_built >= minYearBuilt (default 2024)   <-- limiting factor for new development
+ *
+ * The new-construction score + reasons are still computed on every record
+ * (see annotateNewConstruction) so you can see WHY something looked like
+ * new construction, but the year_built gate is the decisive filter.
  */
 export function filterNewConstructionSold2025(records, opts = {}) {
   const year = opts.targetSoldYear ?? 2025;
+  const minYearBuilt = opts.minYearBuilt ?? 2024;
   return records.filter((r) => {
     if (!isSold(r)) return false;
     if (!inYear(r.sold_date, year)) return false;
-    return r.is_new_construction_match === true;
+    if (!(r.year_built && r.year_built >= minYearBuilt)) return false;
+    return true;
   });
 }
 
