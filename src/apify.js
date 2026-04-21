@@ -76,9 +76,60 @@ export function buildActorInput(target, { maxItems }) {
 }
 
 /**
- * Run an actor for ONE target and return the dataset items.
- * Includes a simple retry loop for flaky network / actor runs.
+ * ============================================================
+ *  DETAIL ACTOR ADAPTER  -- EDIT IF YOU USE A DIFFERENT DETAIL ACTOR
+ * ============================================================
+ *
+ * The detail actor takes a list of Zillow property URLs (or ZPIDs)
+ * and returns full property data per page.
+ *
+ * Default shape matches maxcopell/zillow-detail-scraper, which
+ * accepts `startUrls: [{ url }]`. If your detail actor wants
+ * `zpids` or `urls` instead, tweak here.
+ *
+ * TODO: Customize this for your chosen detail actor.
  */
+export function buildDetailActorInput(urls) {
+  return {
+    startUrls: urls.map((u) => ({ url: u })),
+    maxConcurrency: 5,
+  };
+}
+
+/**
+ * Run the detail actor once for a batch of URLs.
+ * Returns raw dataset items.
+ */
+export async function runDetailActor(client, detailActorId, urls, options = {}) {
+  const { timeoutMinutes = 20, maxRetries = 2 } = options;
+  if (!urls || urls.length === 0) return [];
+
+  const input = buildDetailActorInput(urls);
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      console.log(
+        `  -> Calling detail actor "${detailActorId}" (attempt ${attempt}) for ${urls.length} URL(s)`
+      );
+      const run = await client.actor(detailActorId).call(input, {
+        timeout: timeoutMinutes * 60,
+        memory: 4096,
+      });
+      const { items } = await client.dataset(run.defaultDatasetId).listItems();
+      console.log(`     got ${items.length} detail record(s)`);
+      return items;
+    } catch (err) {
+      lastError = err;
+      console.warn(
+        `     detail attempt ${attempt} failed: ${err.message || err}. ` +
+          (attempt <= maxRetries ? 'Retrying...' : 'Giving up.')
+      );
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
+  }
+  throw lastError;
+}
 export async function runActorForTarget(client, actorId, target, options) {
   const { maxItems, timeoutMinutes, maxRetries = 2 } = options;
   const input = buildActorInput(target, { maxItems });

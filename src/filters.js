@@ -111,6 +111,16 @@ export function annotateNewConstruction(records, opts = {}) {
 }
 
 /**
+ * PRE-FILTER: cheap check before we spend money on the detail actor.
+ * Keeps records that are sold AND sold_date falls in the target year.
+ * Does NOT check year_built (search results often omit or lie about it).
+ */
+export function preFilterSoldInYear(records, opts = {}) {
+  const year = opts.targetSoldYear ?? 2025;
+  return records.filter((r) => isSold(r) && inYear(r.sold_date, year));
+}
+
+/**
  * FILTER A: 2025 new construction sold.
  *
  * Hard gates:

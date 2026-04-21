@@ -40,7 +40,11 @@ That installs:
    ```
    APIFY_TOKEN=apify_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
    APIFY_ACTOR_ID=maxcopell/zillow-scraper
+   APIFY_DETAIL_ACTOR_ID=maxcopell/zillow-detail-scraper
    ```
+
+   `APIFY_DETAIL_ACTOR_ID` is optional — leave it empty to skip the
+   detail-enrichment pass and use only search results.
 
    Get your token at <https://console.apify.com/account/integrations>.
    **Never commit `.env`** — it is already in `.gitignore`.
@@ -159,13 +163,42 @@ Open the CSVs in Excel, Numbers, or Google Sheets.
 
 ## How the filtering logic works
 
+The pipeline runs in **two stages** to keep detail-scraper costs down:
+
+```
+  search actor (per city)
+         |
+         v
+  normalize + dedupe
+         |
+         v
+  PRE-FILTER: sold + sold_date in target year
+         |
+         v
+  detail actor (one run, all surviving URLs)
+         |
+         v
+  merge detail fields back by zpid / URL
+         |
+         v
+  score new construction + apply Filter A / Filter B
+         |
+         v
+  write CSV + JSON
+```
+
 1. **Normalize** – Every raw record from the actor is converted into a
    single consistent schema (see `src/normalize.js`). This handles cases
    where actors use different keys like `zpid` vs `zpId`.
 
 2. **Dedupe** – Records are deduplicated by `zpid` first, then `property_url`.
 
-3. **Score new construction** – Each record gets a `new_construction_score`
+3. **Pre-filter + detail enrichment** – Before spending money on the
+   detail scraper, records are cut down to "sold in the target year".
+   Only survivors get enriched. This keeps the detail bill proportional
+   to useful data, not to the full search haul.
+
+4. **Score new construction** – Each record gets a `new_construction_score`
    based on weak signals:
    - "new construction" / "newly built" in description → +5
    - listing status or home type flagged as new construction → +5
@@ -175,13 +208,13 @@ Open the CSVs in Excel, Numbers, or Google Sheets.
    When score ≥ 5 we mark `is_new_construction_match = true` and write the
    reasons into `new_construction_reason`.
 
-4. **Filter A** keeps records where:
+5. **Filter A** keeps records where:
    - The listing is sold (status text matches `sold/closed/recently_sold`,
      OR the record has a `sold_date` and `sold_price`)
    - The `sold_date` falls in calendar year **2025**
-   - `is_new_construction_match` is `true`
+   - `year_built >= 2024` (hard gate — "new development only")
 
-5. **Filter B** keeps records where:
+6. **Filter B** keeps records where:
    - The listing is sold
    - The `sold_date` is between Jan 1 of the current year and today
    - `sold_price >= $3,000,000`

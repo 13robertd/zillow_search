@@ -16,12 +16,13 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { makeClient, runActorForTarget } from './apify.js';
-import { normalizeItem, dedupe } from './normalize.js';
+import { makeClient, runActorForTarget, runDetailActor } from './apify.js';
+import { normalizeItem, dedupe, mergeDetail } from './normalize.js';
 import {
   annotateNewConstruction,
   filterNewConstructionSold2025,
   filterLuxurySoldYTD,
+  preFilterSoldInYear,
 } from './filters.js';
 import { writeCsv, writeJson } from './export.js';
 
@@ -42,6 +43,7 @@ const CONFIG = {
   maxItemsPerTarget: Number(process.env.MAX_ITEMS_PER_TARGET) || 500,
   actorTimeoutMinutes: Number(process.env.ACTOR_TIMEOUT_MINUTES) || 15,
   actorId: process.env.APIFY_ACTOR_ID,
+  detailActorId: process.env.APIFY_DETAIL_ACTOR_ID || '',
 };
 
 /**
@@ -122,10 +124,63 @@ async function main() {
 
   // 3. Dedupe
   const beforeDedupe = allNormalized.length;
-  const deduped = dedupe(allNormalized);
+  let deduped = dedupe(allNormalized);
   console.log(`\nDeduplicated ${beforeDedupe} -> ${deduped.length} record(s)`);
 
-  // 4. Score new construction (annotates in place)
+  // 3b. OPTIONAL Stage 2: enrich with detail actor.
+  // Pre-filter to sold-in-target-year so we only pay to enrich records that
+  // could possibly survive Filter A.
+  if (CONFIG.detailActorId) {
+    const candidates = preFilterSoldInYear(deduped, {
+      targetSoldYear: CONFIG.targetSoldYear,
+    });
+    const urls = candidates.map((r) => r.property_url).filter(Boolean);
+    console.log(
+      `\n--- Stage 2: detail enrichment ---\n` +
+        `  pre-filter survivors: ${candidates.length}, URLs to enrich: ${urls.length}`
+    );
+
+    if (urls.length > 0) {
+      try {
+        const detailItems = await runDetailActor(client, CONFIG.detailActorId, urls, {
+          timeoutMinutes: CONFIG.actorTimeoutMinutes,
+          maxRetries: 2,
+        });
+
+        // Normalize each detail item and index by zpid / url for fast merge.
+        const detailByZpid = new Map();
+        const detailByUrl = new Map();
+        for (const raw of detailItems) {
+          const n = normalizeItem(raw, {
+            kind: 'detail',
+            value: raw?.url || raw?.zpid || '',
+            label: 'detail-enrichment',
+          });
+          if (n.zpid) detailByZpid.set(String(n.zpid), n);
+          if (n.property_url) detailByUrl.set(n.property_url, n);
+        }
+
+        let mergedCount = 0;
+        deduped = deduped.map((r) => {
+          const match =
+            (r.zpid && detailByZpid.get(String(r.zpid))) ||
+            (r.property_url && detailByUrl.get(r.property_url));
+          if (match) {
+            mergedCount++;
+            return mergeDetail(r, match);
+          }
+          return r;
+        });
+        console.log(`  merged detail data into ${mergedCount} record(s)`);
+      } catch (err) {
+        console.error(`  !! Detail actor failed, continuing with search-only data: ${err.message || err}`);
+      }
+    }
+  } else {
+    console.log('\n(Skipping Stage 2: APIFY_DETAIL_ACTOR_ID not set)');
+  }
+
+  // 4. Score new construction (annotates in place, using the now-enriched data)
   annotateNewConstruction(deduped, {
     recentYearBuilt: CONFIG.recentYearBuiltThreshold,
   });

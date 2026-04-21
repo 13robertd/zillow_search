@@ -202,6 +202,24 @@ export function normalizeItem(raw, source) {
 }
 
 /**
+ * Merge a detail-actor record into a previously normalized search record.
+ *
+ * Rules:
+ *   - preserve origin metadata (source_target, search_type, raw_search_target)
+ *     from the search record
+ *   - prefer non-empty values from the detail record for everything else
+ */
+export function mergeDetail(searchRecord, detailRecord) {
+  const merged = { ...searchRecord };
+  const preserve = new Set(['source_target', 'search_type', 'raw_search_target']);
+  for (const [k, v] of Object.entries(detailRecord)) {
+    if (preserve.has(k)) continue;
+    if (v !== undefined && v !== null && v !== '') merged[k] = v;
+  }
+  return merged;
+}
+
+/**
  * Deduplicate an array of normalized records.
  * Uses ZPID first; falls back to property URL.
  */
