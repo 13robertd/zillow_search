@@ -1,4 +1,4 @@
-# Zillow Sales Research
+# Zillow Research Scraper
 
 A small, beginner-friendly Node.js script that uses an **Apify Zillow actor**
 to find two specific kinds of sold homes in the United States:
@@ -15,7 +15,6 @@ Results are written as both **CSV** and **JSON** under `output/`.
 You need Node.js 18+ installed. From inside this folder:
 
 ```bash
-cd zillow-sales-research
 npm install
 ```
 
