@@ -1,0 +1,20 @@
+{
+  "name": "zillow-sales-research",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Apify-powered Zillow research script: 2025 new construction sales + YTD luxury ($3M+) sales.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "run:research": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "apify-client": "^2.9.3",
+    "dotenv": "^16.4.5",
+    "json2csv": "^6.0.0-alpha.2"
+  }
+}
