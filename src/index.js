@@ -44,6 +44,11 @@ const CONFIG = {
   actorTimeoutMinutes: Number(process.env.ACTOR_TIMEOUT_MINUTES) || 15,
   actorId: process.env.APIFY_ACTOR_ID,
   detailActorId: process.env.APIFY_DETAIL_ACTOR_ID || '',
+  // Hard spending cap in USD for the whole run (search + detail combined).
+  // We reserve `detailReserveUsd` of this for the detail pass.
+  budgetUsd: Number(process.env.BUDGET_USD) || Infinity,
+  detailReserveUsd: Number(process.env.DETAIL_RESERVE_USD) || 1.0,
+  detailMaxItems: Number(process.env.DETAIL_MAX_ITEMS) || 0, // 0 = no actor-side cap
 };
 
 /**
@@ -103,18 +108,53 @@ async function main() {
   const client = makeClient();
   const allNormalized = [];
   const failed = [];
+  let spentUsd = 0;
+  let avgCostPerRun = 0;
+  let completedRuns = 0;
+
+  // Budget for search stage = total budget minus reserve for detail stage.
+  const searchBudget = Number.isFinite(CONFIG.budgetUsd)
+    ? Math.max(0, CONFIG.budgetUsd - CONFIG.detailReserveUsd)
+    : Infinity;
+
+  if (Number.isFinite(CONFIG.budgetUsd)) {
+    console.log(
+      `Budget cap: $${CONFIG.budgetUsd.toFixed(2)} total ` +
+        `(search up to $${searchBudget.toFixed(2)}, reserving $${CONFIG.detailReserveUsd.toFixed(2)} for detail)`
+    );
+  }
 
   for (const target of targets) {
+    // Before starting the next run, check if we'd likely blow the search budget.
+    if (
+      Number.isFinite(searchBudget) &&
+      completedRuns > 0 &&
+      spentUsd + avgCostPerRun > searchBudget
+    ) {
+      console.log(
+        `\n!! Search budget cap reached ($${spentUsd.toFixed(4)} spent, ` +
+          `avg ~$${avgCostPerRun.toFixed(4)}/run, cap $${searchBudget.toFixed(2)}). ` +
+          `Stopping search stage early. ${targets.length - completedRuns} target(s) skipped.`
+      );
+      break;
+    }
+
     console.log(`\n--- Target: ${target.label} ---`);
     try {
-      const items = await runActorForTarget(client, CONFIG.actorId, target, {
+      const { items, usageUsd } = await runActorForTarget(client, CONFIG.actorId, target, {
         maxItems: CONFIG.maxItemsPerTarget,
         timeoutMinutes: CONFIG.actorTimeoutMinutes,
         maxRetries: 2,
       });
 
+      spentUsd += usageUsd;
+      completedRuns++;
+      avgCostPerRun = spentUsd / completedRuns;
+
       const normalized = items.map((it) => normalizeItem(it, target));
-      console.log(`     normalized ${normalized.length} record(s)`);
+      console.log(
+        `     normalized ${normalized.length} record(s). Running spend: $${spentUsd.toFixed(4)}`
+      );
       allNormalized.push(...normalized);
     } catch (err) {
       console.error(`  !! Failed target ${target.label}: ${err.message || err}`);
@@ -142,10 +182,28 @@ async function main() {
 
     if (urls.length > 0) {
       try {
-        const detailItems = await runDetailActor(client, CONFIG.detailActorId, urls, {
-          timeoutMinutes: CONFIG.actorTimeoutMinutes,
-          maxRetries: 2,
-        });
+        const remainingBudget = Number.isFinite(CONFIG.budgetUsd)
+          ? Math.max(0, CONFIG.budgetUsd - spentUsd)
+          : Infinity;
+        if (Number.isFinite(remainingBudget)) {
+          console.log(`  detail-stage budget remaining: $${remainingBudget.toFixed(2)}`);
+          if (remainingBudget <= 0) {
+            console.warn('  !! No budget left for detail stage, skipping.');
+            throw new Error('budget exhausted before detail stage');
+          }
+        }
+
+        const { items: detailItems, usageUsd: detailUsd } = await runDetailActor(
+          client,
+          CONFIG.detailActorId,
+          urls,
+          {
+            timeoutMinutes: CONFIG.actorTimeoutMinutes,
+            maxRetries: 2,
+            maxItems: CONFIG.detailMaxItems || undefined,
+          }
+        );
+        spentUsd += detailUsd;
 
         // Normalize each detail item and index by zpid / url for fast merge.
         const detailByZpid = new Map();
@@ -223,7 +281,8 @@ async function main() {
   for (const [k, p] of Object.entries(paths)) {
     console.log(`  ${k.padEnd(8)} -> ${path.relative(ROOT, p)}`);
   }
-  console.log('\nDone.');
+  console.log(`\nTotal Apify spend this run: $${spentUsd.toFixed(4)}`);
+  console.log('Done.');
 }
 
 main().catch((err) => {

@@ -89,11 +89,13 @@ export function buildActorInput(target, { maxItems }) {
  *
  * TODO: Customize this for your chosen detail actor.
  */
-export function buildDetailActorInput(urls) {
-  return {
+export function buildDetailActorInput(urls, opts = {}) {
+  const input = {
     startUrls: urls.map((u) => ({ url: u })),
     maxConcurrency: 5,
   };
+  if (opts.maxItems) input.maxItems = opts.maxItems;
+  return input;
 }
 
 /**
@@ -101,10 +103,10 @@ export function buildDetailActorInput(urls) {
  * Returns raw dataset items.
  */
 export async function runDetailActor(client, detailActorId, urls, options = {}) {
-  const { timeoutMinutes = 20, maxRetries = 2 } = options;
-  if (!urls || urls.length === 0) return [];
+  const { timeoutMinutes = 20, maxRetries = 2, maxItems } = options;
+  if (!urls || urls.length === 0) return { items: [], usageUsd: 0 };
 
-  const input = buildDetailActorInput(urls);
+  const input = buildDetailActorInput(urls, { maxItems });
   let lastError;
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
@@ -117,8 +119,9 @@ export async function runDetailActor(client, detailActorId, urls, options = {}) 
         memory: 4096,
       });
       const { items } = await client.dataset(run.defaultDatasetId).listItems();
-      console.log(`     got ${items.length} detail record(s)`);
-      return items;
+      const usageUsd = Number(run.usageTotalUsd) || 0;
+      console.log(`     got ${items.length} detail record(s) (run cost ~$${usageUsd.toFixed(4)})`);
+      return { items, usageUsd };
     } catch (err) {
       lastError = err;
       console.warn(
@@ -148,8 +151,9 @@ export async function runActorForTarget(client, actorId, target, options) {
 
       // Pull every item from the resulting dataset.
       const { items } = await client.dataset(run.defaultDatasetId).listItems();
-      console.log(`     got ${items.length} raw items`);
-      return items;
+      const usageUsd = Number(run.usageTotalUsd) || 0;
+      console.log(`     got ${items.length} raw items (run cost ~$${usageUsd.toFixed(4)})`);
+      return { items, usageUsd };
     } catch (err) {
       lastError = err;
       console.warn(
