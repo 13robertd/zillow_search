@@ -1,17 +1,10 @@
 {
-  "searchUrls": [],
-  "zipCodes": [],
-  "cities": [
-    "Atherton, CA", "Belmont, CA", "Brisbane, CA", "Burlingame, CA",
-    "Colma, CA", "Daly City, CA", "East Palo Alto, CA", "Foster City, CA",
-    "Half Moon Bay, CA", "Hillsborough, CA", "Menlo Park, CA", "Millbrae, CA",
-    "Pacifica, CA", "Portola Valley, CA", "Redwood City, CA", "San Bruno, CA",
-    "San Carlos, CA", "San Mateo, CA", "South San Francisco, CA", "Woodside, CA",
-    "Campbell, CA", "Cupertino, CA", "Gilroy, CA", "Los Altos, CA",
-    "Los Altos Hills, CA", "Los Gatos, CA", "Milpitas, CA", "Monte Sereno, CA",
-    "Morgan Hill, CA", "Mountain View, CA", "Palo Alto, CA", "San Jose, CA",
-    "Santa Clara, CA", "Saratoga, CA", "Sunnyvale, CA"
+  "searchUrls": [
+    "https://www.zillow.com/san-mateo-county-ca/sold/",
+    "https://www.zillow.com/santa-clara-county-ca/sold/"
   ],
+  "zipCodes": [],
+  "cities": [],
   "states": [],
   "addresses": []
 }
